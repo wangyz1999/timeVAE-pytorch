@@ -69,16 +69,24 @@ class BaseVariationalAutoencoder(nn.Module, ABC):
                 reconstruction_loss += recon_loss.item()
                 kl_loss += kl.item()
             
-            if verbose and (epoch + 1) % 100 == 0:
-                print(f"Epoch {epoch + 1}/{max_epochs}")
-                print(f"Total loss: {total_loss / len(train_loader):.4f}")
-                print(f"Reconstruction loss: {reconstruction_loss / len(train_loader):.4f}")
-                print(f"KL loss: {kl_loss / len(train_loader):.4f}")
+            if verbose:
+                print(f"Epoch {epoch + 1}/{max_epochs} | Total loss: {total_loss / len(train_loader):.4f} | "
+                    f"Recon loss: {reconstruction_loss / len(train_loader):.4f} | "
+                    f"KL loss: {kl_loss / len(train_loader):.4f}")
+
 
     def forward(self, X):
         z_mean, z_log_var, z = self.encoder(X)
         x_decoded = self.decoder(z)
         return x_decoded
+    
+    def predict(self, X):
+        self.eval()
+        with torch.no_grad():
+            X = torch.FloatTensor(X).to(next(self.parameters()).device)
+            z_mean, z_log_var, z = self.encoder(X)
+            x_decoded = self.decoder(z)
+        return x_decoded.cpu().detach().numpy()
 
     def get_num_trainable_variables(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
