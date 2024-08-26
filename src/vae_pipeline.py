@@ -1,7 +1,9 @@
 import os, warnings
 import numpy as np
 import time
+import torch
 
+torch.set_printoptions(precision=10)
 
 from data_utils import (
     load_yaml_file,
@@ -56,7 +58,7 @@ def run_vae_pipeline(dataset_name: str, vae_type: str):
     train_vae(
         vae=vae_model,
         train_data=scaled_train_data,
-        max_epochs=1000,
+        max_epochs=10,
         verbose=1,
     )
 
@@ -118,7 +120,7 @@ def run_vae_pipeline(dataset_name: str, vae_type: str):
 
     # ----------------------------------------------------------------------------------
     # later.... load model
-    loaded_model = load_vae_model(vae_type, model_save_dir)
+    loaded_model = load_vae_model(vae_type, model_save_dir).to(next(vae_model.parameters()).device)
 
     # Verify that loaded model produces same posterior samples
     new_x_decoded = loaded_model.predict(scaled_train_data)

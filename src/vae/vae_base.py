@@ -77,7 +77,7 @@ class BaseVariationalAutoencoder(nn.Module, ABC):
 
     def forward(self, X):
         z_mean, z_log_var, z = self.encoder(X)
-        x_decoded = self.decoder(z)
+        x_decoded = self.decoder(z_mean)
         return x_decoded
     
     def predict(self, X):
@@ -85,7 +85,7 @@ class BaseVariationalAutoencoder(nn.Module, ABC):
         with torch.no_grad():
             X = torch.FloatTensor(X).to(next(self.parameters()).device)
             z_mean, z_log_var, z = self.encoder(X)
-            x_decoded = self.decoder(z)
+            x_decoded = self.decoder(z_mean)
         return x_decoded.cpu().detach().numpy()
 
     def get_num_trainable_variables(self):
