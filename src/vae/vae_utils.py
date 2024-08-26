@@ -146,7 +146,7 @@ def get_posterior_samples(vae, data):
     Returns:
         np.ndarray: The posterior samples.
     """
-    return vae.predict(data, verbose=0)
+    return vae.predict(data)
 
 
 def get_prior_samples(vae, num_samples: int):
