@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 import joblib
-from vae_base import BaseVariationalAutoencoder, Sampling
+from vae.vae_base import BaseVariationalAutoencoder, Sampling
 
 
 class Encoder(nn.Module):
@@ -66,8 +66,9 @@ class Decoder(nn.Module):
         self.final_dense = nn.Linear(feat_dim * L_final, seq_len * feat_dim)
 
     def forward(self, z):
+        batch_size = z.size(0)
         x = torch.relu(self.dense(z))
-        x = x.view(1, -1, self.hidden_layer_sizes[-1])
+        x = x.view(batch_size, -1, self.hidden_layer_sizes[-1])
         x = x.transpose(1, 2)
         for deconv in self.deconv_layers[:-1]:
             x = torch.relu(deconv(x))
