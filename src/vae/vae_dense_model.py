@@ -6,10 +6,57 @@ import joblib
 
 from vae.vae_base import BaseVariationalAutoencoder, Sampling
 
+class DenseEncoder(nn.Module):
+    def __init__(self, seq_len, feat_dim, hidden_layer_sizes, latent_dim):
+        super(DenseEncoder, self).__init__()
+        input_size = seq_len * feat_dim
+
+        encoder_layers = []
+        
+        encoder_layers.append(nn.Flatten())
+        
+        for M_out in hidden_layer_sizes:
+            encoder_layers.append(nn.Linear(input_size, M_out))
+            encoder_layers.append(nn.ReLU())
+            input_size = M_out
+
+        self.encoder = nn.Sequential(*encoder_layers)
+        self.z_mean = nn.Linear(input_size, latent_dim)
+        self.z_log_var = nn.Linear(input_size, latent_dim)
+        self.sampling = Sampling()
+    
+    def forward(self, x):
+        x = self.encoder(x)
+        z_mean = self.z_mean(x)
+        z_log_var = self.z_log_var(x)
+        z = self.sampling((z_mean, z_log_var))
+        return z_mean, z_log_var, z
+
+class DenseDecoder(nn.Module):
+    def __init__(self, seq_len, feat_dim, hidden_layer_sizes, latent_dim):
+        super(DenseDecoder, self).__init__()
+        decoder_layers = []
+        input_size = latent_dim
+        self.seq_len = seq_len
+        self.feat_dim = feat_dim
+        
+        for M_out in hidden_layer_sizes:
+            decoder_layers.append(nn.Linear(input_size, M_out))
+            decoder_layers.append(nn.ReLU())
+            input_size = M_out
+        
+        decoder_layers.append(nn.Linear(input_size, seq_len * feat_dim))
+        self.decoder = nn.Sequential(*decoder_layers)
+    
+    def forward(self, z):
+        decoder_output = self.decoder(z)
+        reshaped_output = decoder_output.view(-1, self.seq_len, self.feat_dim)
+        return reshaped_output
+
 class VariationalAutoencoderDense(BaseVariationalAutoencoder):
     model_name = "VAE_Dense"
 
-    def __init__(self, hidden_layer_sizes, **kwargs):
+    def __init__(self, hidden_layer_sizes=None, **kwargs):
         super(VariationalAutoencoderDense, self).__init__(**kwargs)
 
         if hidden_layer_sizes is None:
@@ -19,42 +66,17 @@ class VariationalAutoencoderDense(BaseVariationalAutoencoder):
 
         self.encoder = self._get_encoder()
         self.decoder = self._get_decoder()
+
         self.optimizer = optim.Adam(self.parameters())
 
     def _get_encoder(self):
-        encoder_layers = []
-        input_size = self.seq_len * self.feat_dim
-        
-        encoder_layers.append(nn.Flatten())
-        
-        for i, M_out in enumerate(self.hidden_layer_sizes):
-            encoder_layers.append(nn.Linear(input_size, M_out))
-            encoder_layers.append(nn.ReLU())
-            input_size = M_out
-
-        self.z_mean = nn.Linear(input_size, self.latent_dim)
-        self.z_log_var = nn.Linear(input_size, self.latent_dim)
-        
-        return nn.Sequential(*encoder_layers)
-
+        return DenseEncoder(self.seq_len, self.feat_dim, self.hidden_layer_sizes, self.latent_dim)
+    
     def _get_decoder(self):
-        decoder_layers = []
-        input_size = self.latent_dim
-        
-        for i, M_out in enumerate(reversed(self.hidden_layer_sizes)):
-            decoder_layers.append(nn.Linear(input_size, M_out))
-            decoder_layers.append(nn.ReLU())
-            input_size = M_out
-        
-        decoder_layers.append(nn.Linear(input_size, self.seq_len * self.feat_dim))
-        decoder_layers.append(nn.Unflatten(1, (self.seq_len, self.feat_dim)))
-        
-        return nn.Sequential(*decoder_layers)
+        return DenseDecoder(self.seq_len, self.feat_dim, list(reversed(self.hidden_layer_sizes)), self.latent_dim)
 
     def encode(self, x):
-        x = self.encoder(x)
-        z_mean = self.z_mean(x)
-        z_log_var = self.z_log_var(x)
+        z_mean, z_log_var = self.encoder(x)
         z = Sampling()([z_mean, z_log_var])
         return z_mean, z_log_var, z
 
