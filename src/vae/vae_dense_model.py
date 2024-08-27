@@ -69,6 +69,12 @@ class VariationalAutoencoderDense(BaseVariationalAutoencoder):
 
         self.optimizer = optim.Adam(self.parameters())
 
+        for layer in self.modules():
+            if isinstance(layer, nn.Linear):
+                nn.init.xavier_uniform_(layer.weight)
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
+
     def _get_encoder(self):
         return DenseEncoder(self.seq_len, self.feat_dim, self.hidden_layer_sizes, self.latent_dim)
     

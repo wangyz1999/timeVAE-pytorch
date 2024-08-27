@@ -90,6 +90,12 @@ class VariationalAutoencoderConv(BaseVariationalAutoencoder):
         self.encoder = self._get_encoder()
         self.decoder = self._get_decoder()
 
+        for layer in self.modules():
+            if isinstance(layer, nn.Linear):
+                nn.init.xavier_uniform_(layer.weight)
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
+
     def _get_encoder(self):
         return Encoder(self.seq_len, self.feat_dim, self.hidden_layer_sizes, self.latent_dim)
 
