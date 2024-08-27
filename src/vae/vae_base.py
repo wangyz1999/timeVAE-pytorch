@@ -111,15 +111,20 @@ class BaseVariationalAutoencoder(nn.Module, ABC):
         raise NotImplementedError
 
     def _get_reconstruction_loss(self, X, X_recons):
+        def get_reconst_loss_by_axis(X, X_recons, dim):
+            x_r = torch.mean(X, dim=dim)
+            x_c_r = torch.mean(X_recons, dim=dim)
+            err = torch.pow(x_r - x_c_r, 2)
+            loss = torch.sum(err)
+            return loss
+
         err = torch.pow(X - X_recons, 2)
         reconst_loss = torch.sum(err)
         
-        # by time axis
-        x_r = torch.mean(X, dim=2)
-        x_c_r = torch.mean(X_recons, dim=2)
-        err_time = torch.pow(x_r - x_c_r, 2)
-        reconst_loss += torch.sum(err_time)
+        reconst_loss += get_reconst_loss_by_axis(X, X_recons, dim=2)  # by time axis
         
+        # reconst_loss += get_reconst_loss_by_axis(X, X_recons, dim=1)  # by feature axis 
+
         return reconst_loss
 
     def loss_function(self, X, X_recons, z_mean, z_log_var):

@@ -56,7 +56,7 @@ class DenseDecoder(nn.Module):
 class VariationalAutoencoderDense(BaseVariationalAutoencoder):
     model_name = "VAE_Dense"
 
-    def __init__(self, hidden_layer_sizes=None, **kwargs):
+    def __init__(self, hidden_layer_sizes, **kwargs):
         super(VariationalAutoencoderDense, self).__init__(**kwargs)
 
         if hidden_layer_sizes is None:
@@ -74,21 +74,6 @@ class VariationalAutoencoderDense(BaseVariationalAutoencoder):
     
     def _get_decoder(self):
         return DenseDecoder(self.seq_len, self.feat_dim, list(reversed(self.hidden_layer_sizes)), self.latent_dim)
-
-    def encode(self, x):
-        z_mean, z_log_var = self.encoder(x)
-        z = Sampling()([z_mean, z_log_var])
-        return z_mean, z_log_var, z
-
-    def decode(self, z):
-        return self.decoder(z)
-
-    def forward(self, x):
-        z_mean, z_log_var, z = self.encode(x)
-        return self.decode(z), z_mean, z_log_var
-
-    def compile(self, optimizer):
-        self.optimizer = optimizer
 
     @classmethod
     def load(cls, model_dir: str) -> "VariationalAutoencoderDense":
