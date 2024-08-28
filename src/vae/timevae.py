@@ -5,16 +5,17 @@ import torch.optim as optim
 import os
 import joblib
 
-from vae_base import BaseVariationalAutoencoder, Sampling
+from vae.vae_base import BaseVariationalAutoencoder, Sampling
 
 
 class TrendLayer(nn.Module):
-    def __init__(self, feat_dim, trend_poly, seq_len):
+    def __init__(self, latent_dim, feat_dim, trend_poly, seq_len):
         super(TrendLayer, self).__init__()
+        self.latent_dim = latent_dim
         self.feat_dim = feat_dim
         self.trend_poly = trend_poly
         self.seq_len = seq_len
-        self.trend_dense1 = nn.Linear(self.feat_dim, self.feat_dim * self.trend_poly)
+        self.trend_dense1 = nn.Linear(self.latent_dim, self.feat_dim * self.trend_poly)
         self.trend_dense2 = nn.Linear(self.feat_dim * self.trend_poly, self.feat_dim * self.trend_poly)
         self.relu = nn.ReLU()
 
@@ -23,7 +24,7 @@ class TrendLayer(nn.Module):
         trend_params = self.trend_dense2(trend_params)
         trend_params = trend_params.view(-1, self.feat_dim, self.trend_poly)  # shape: N x D x P
 
-        lin_space = torch.arange(0, float(self.seq_len), 1) / self.seq_len  # shape of lin_space: 1d tensor of length T
+        lin_space = torch.arange(0, float(self.seq_len), 1, device=z.device) / self.seq_len  # shape of lin_space: 1d tensor of length T
         poly_space = torch.stack([lin_space ** float(p + 1) for p in range(self.trend_poly)], dim=0)  # shape: P x T
 
         trend_vals = torch.matmul(trend_params, poly_space)  # shape (N, D, T)
@@ -34,7 +35,7 @@ class TrendLayer(nn.Module):
 
 
 class SeasonalLayer(nn.Module):
-    def __init__(self, feat_dim, seq_len, custom_seas):
+    def __init__(self, latent_dim, feat_dim, seq_len, custom_seas):
         super(SeasonalLayer, self).__init__()
         self.feat_dim = feat_dim
         self.seq_len = seq_len
@@ -42,7 +43,7 @@ class SeasonalLayer(nn.Module):
 
         # Create dense layers for each season
         self.dense_layers = nn.ModuleList([
-            nn.Linear(feat_dim, feat_dim * num_seasons)
+            nn.Linear(latent_dim, feat_dim * num_seasons)
             for num_seasons, len_per_season in custom_seas
         ])
         
@@ -58,7 +59,7 @@ class SeasonalLayer(nn.Module):
 
     def forward(self, z):
         N = z.shape[0]
-        ones_tensor = torch.ones((N, self.feat_dim, self.seq_len), dtype=torch.int32)
+        ones_tensor = torch.ones((N, self.feat_dim, self.seq_len), dtype=torch.int32, device=z.device)
 
         all_seas_vals = []
         for i, (num_seasons, len_per_season) in enumerate(self.custom_seas):
@@ -67,7 +68,7 @@ class SeasonalLayer(nn.Module):
 
             season_indexes_over_time = self._get_season_indexes_over_seq(
                 num_seasons, len_per_season
-            )  # shape: (T, )
+            ).to(z.device)  # shape: (T,)
 
             dim2_idxes = ones_tensor * season_indexes_over_time.view(1, 1, -1)  # shape: (N, D, T)
             season_vals = torch.gather(season_params, 2, dim2_idxes)  # shape (N, D, T)
@@ -82,7 +83,73 @@ class SeasonalLayer(nn.Module):
 
     def compute_output_shape(self, input_shape):
         return (input_shape[0], self.seq_len, self.feat_dim)
+    
 
+class LevelModel(nn.Module):
+    def __init__(self, latent_dim, feat_dim, seq_len):
+        super(LevelModel, self).__init__()
+        self.latent_dim = latent_dim
+        self.feat_dim = feat_dim
+        self.seq_len = seq_len
+        self.level_dense1 = nn.Linear(self.latent_dim, self.feat_dim)
+        self.level_dense2 = nn.Linear(self.feat_dim, self.feat_dim)
+        self.relu = nn.ReLU()
+
+    def forward(self, z):
+        level_params = self.relu(self.level_dense1(z))
+        level_params = self.level_dense2(level_params)
+        level_params = level_params.view(-1, 1, self.feat_dim)
+
+        ones_tensor = torch.ones((1, self.seq_len, 1), dtype=torch.float32, device=z.device)
+        level_vals = level_params * ones_tensor
+        return level_vals
+
+
+class ResidualConnection(nn.Module):
+    def __init__(self, latent_dim, hidden_layer_sizes, feat_dim, seq_len, encoder_last_dense_dim):
+        super(ResidualConnection, self).__init__()
+        self.latent_dim = latent_dim
+        self.hidden_layer_sizes = hidden_layer_sizes
+        self.feat_dim = feat_dim
+        self.seq_len = seq_len
+        self.encoder_last_dense_dim = encoder_last_dense_dim
+        
+        # Define the linear layer to expand latent_dim to the encoder_last_dense_dim
+        self.linear1 = nn.Linear(latent_dim, encoder_last_dense_dim)
+        self.relu = nn.ReLU()
+        
+        # Define the ConvTranspose1d layers
+        self.deconv_layers = nn.ModuleList()
+        in_channels = hidden_layer_sizes[-1]
+        for num_filters in reversed(hidden_layer_sizes[:-1]):
+            self.deconv_layers.append(
+                nn.ConvTranspose1d(in_channels, num_filters, kernel_size=3, stride=2, padding=1, output_padding=1)
+            )
+            in_channels = num_filters
+
+        # Final ConvTranspose1d layer to match feat_dim
+        self.deconv_final = nn.ConvTranspose1d(hidden_layer_sizes[0], feat_dim, kernel_size=3, stride=2, padding=1, output_padding=1)
+        self.flatten = nn.Flatten()
+        self.linear2 = nn.Linear(seq_len * feat_dim, seq_len * feat_dim)
+
+    def forward(self, z):
+        batch_size = z.shape[0]
+        x = self.linear1(z)
+        x = self.relu(x)
+        x = x.view(batch_size, self.hidden_layer_sizes[-1], -1)
+        
+        for deconv in self.deconv_layers:
+            x = deconv(x)
+            x = self.relu(x)
+
+        x = self.deconv_final(x)
+        x = self.relu(x)
+        
+        x = self.flatten(x)
+        x = self.linear2(x)
+        residuals = x.view(batch_size, self.seq_len, self.feat_dim)
+        return residuals
+    
 
 class TimeVAEEncoder(nn.Module):
     def __init__(self, feat_dim, hidden_layer_sizes, latent_dim, seq_len):
@@ -91,33 +158,40 @@ class TimeVAEEncoder(nn.Module):
         self.feat_dim = feat_dim
         self.latent_dim = latent_dim
         self.seq_len = seq_len
-
-        layers = []
-        layers.append(nn.Conv1d(feat_dim, hidden_layer_sizes[0], kernel_size=3, stride=2, padding=1))
-        layers.append(nn.ReLU())
+        self.layers = []
+        self.layers.append(nn.Conv1d(feat_dim, hidden_layer_sizes[0], kernel_size=3, stride=2, padding=1))
+        self.layers.append(nn.ReLU())
 
         for i, num_filters in enumerate(hidden_layer_sizes[1:]):
-            layers.append(nn.Conv1d(hidden_layer_sizes[i], num_filters, kernel_size=3, stride=2, padding=1))
-            layers.append(nn.ReLU())
+            self.layers.append(nn.Conv1d(hidden_layer_sizes[i], num_filters, kernel_size=3, stride=2, padding=1))
+            self.layers.append(nn.ReLU())
 
-        layers.append(nn.Flatten())
+        self.layers.append(nn.Flatten())
         
         # Calculate the size after flattening
-        self.encoder_last_dense_dim = hidden_layer_sizes[-1] * (seq_len // 2**len(hidden_layer_sizes))
+        self.encoder_last_dense_dim = self._get_last_dense_dim(seq_len, feat_dim, hidden_layer_sizes)
 
-        self.encoder = nn.Sequential(*layers)
+        self.encoder = nn.Sequential(*self.layers)
         self.z_mean = nn.Linear(self.encoder_last_dense_dim, latent_dim)
         self.z_log_var = nn.Linear(self.encoder_last_dense_dim, latent_dim)
 
     def forward(self, x):
+        x = x.transpose(1, 2)  # (batch_size, feat_dim, seq_len)
         x = self.encoder(x)
         z_mean = self.z_mean(x)
         z_log_var = self.z_log_var(x)
-        return z_mean, z_log_var
-
+        z = Sampling()([z_mean, z_log_var])
+        return z_mean, z_log_var, z
+    
+    def _get_last_dense_dim(self, seq_len, feat_dim, hidden_layer_sizes):
+        with torch.no_grad():
+            x = torch.randn(1, feat_dim, seq_len)
+            for conv in self.layers:
+                x = conv(x)
+            return x.numel()
 
 class TimeVAEDecoder(nn.Module):
-    def __init__(self, feat_dim, hidden_layer_sizes, latent_dim, seq_len, trend_poly=0, custom_seas=None, use_residual_conn=True):
+    def __init__(self, feat_dim, hidden_layer_sizes, latent_dim, seq_len, trend_poly=0, custom_seas=None, use_residual_conn=True, encoder_last_dense_dim=None):
         super(TimeVAEDecoder, self).__init__()
         self.hidden_layer_sizes = hidden_layer_sizes
         self.feat_dim = feat_dim
@@ -126,61 +200,30 @@ class TimeVAEDecoder(nn.Module):
         self.trend_poly = trend_poly
         self.custom_seas = custom_seas
         self.use_residual_conn = use_residual_conn
-
+        self.encoder_last_dense_dim = encoder_last_dense_dim
         self.relu = nn.ReLU()
+        self.level_model = LevelModel(self.latent_dim, self.feat_dim, self.seq_len)
 
-        # Transposed convolutions for upsampling
-        self.deconv_layers = nn.ModuleList()
-        for i, num_filters in enumerate(reversed(hidden_layer_sizes[:-1])):
-            self.deconv_layers.append(nn.ConvTranspose1d(num_filters, num_filters, kernel_size=3, stride=2, padding=1, output_padding=1))
-            self.deconv_layers.append(nn.ReLU())
+        if use_residual_conn:
+            self.residual_conn = ResidualConnection(latent_dim, hidden_layer_sizes, feat_dim, seq_len, encoder_last_dense_dim)
 
-        self.final_deconv = nn.ConvTranspose1d(hidden_layer_sizes[0], feat_dim, kernel_size=3, stride=2, padding=1, output_padding=1)
-        self.final_relu = nn.ReLU()
 
     def forward(self, z):
         outputs = self.level_model(z)
         if self.trend_poly is not None and self.trend_poly > 0:
-            trend_vals = TrendLayer(self.feat_dim, self.trend_poly, self.seq_len)(z)
+            trend_vals = TrendLayer(self.latent_dim, self.feat_dim, self.trend_poly, self.seq_len)(z)
             outputs += trend_vals
 
         # custom seasons
         if self.custom_seas is not None and len(self.custom_seas) > 0:
-            cust_seas_vals = SeasonalLayer(self.feat_dim, self.seq_len, self.custom_seas)(z)
+            cust_seas_vals = SeasonalLayer(self.latent_dim, self.feat_dim, self.seq_len, self.custom_seas)(z)
             outputs += cust_seas_vals
 
         if self.use_residual_conn:
-            residuals = self._get_decoder_residual(z)
+            residuals = self.residual_conn(z)
             outputs += residuals
 
         return outputs
-
-    def _get_decoder_residual(self, z):
-        x = nn.Linear(self.latent_dim, self.hidden_layer_sizes[-1])(z)
-        x = nn.ReLU()(x)
-        x = x.view(-1, self.hidden_layer_sizes[-1], self.seq_len // 2**len(self.hidden_layer_sizes))
-
-        for i, num_filters in enumerate(reversed(self.hidden_layer_sizes[:-1])):
-            x = nn.ConvTranspose1d(num_filters, num_filters, kernel_size=3, stride=2, padding=1, output_padding=1)(x)
-            x = nn.ReLU()(x)
-
-        x = nn.ConvTranspose1d(self.hidden_layer_sizes[0], self.feat_dim, kernel_size=3, stride=2, padding=1, output_padding=1)(x)
-        x = nn.ReLU()(x)
-
-        x = nn.Flatten()(x)
-        x = nn.Linear(self.seq_len * self.feat_dim, self.seq_len * self.feat_dim)(x)
-        residuals = x.view(-1, self.seq_len, self.feat_dim)
-        return residuals
-    
-    def level_model(self, z):
-        level_params = nn.Linear(self.feat_dim, self.feat_dim)(z)
-        level_params = nn.ReLU()(level_params)
-        level_params = nn.Linear(self.feat_dim, self.feat_dim)(level_params)
-        level_params = level_params.view(-1, 1, self.feat_dim)
-
-        ones_tensor = torch.ones((1, self.seq_len, 1), dtype=torch.float32)
-        level_vals = level_params * ones_tensor
-        return level_vals
 
 
 class TimeVAE(BaseVariationalAutoencoder):
@@ -207,15 +250,17 @@ class TimeVAE(BaseVariationalAutoencoder):
         self.encoder = self._get_encoder()
         self.decoder = self._get_decoder()
 
-        self.optimizer = optim.Adam(self.parameters())
+        for layer in self.modules():
+            if isinstance(layer, nn.Linear):
+                nn.init.xavier_uniform_(layer.weight)
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
 
     def _get_encoder(self):
         return TimeVAEEncoder(self.feat_dim, self.hidden_layer_sizes, self.latent_dim, self.seq_len)
 
     def _get_decoder(self):
-        return TimeVAEDecoder(self.feat_dim, self.hidden_layer_sizes, self.latent_dim, self.seq_len, self.trend_poly, self.custom_seas, self.use_residual_conn)
-
-    
+        return TimeVAEDecoder(self.feat_dim, self.hidden_layer_sizes, self.latent_dim, self.seq_len, self.trend_poly, self.custom_seas, self.use_residual_conn, self.encoder.encoder_last_dense_dim)
 
     def save(self, model_dir: str):
         os.makedirs(model_dir, exist_ok=True)
@@ -244,7 +289,6 @@ class TimeVAE(BaseVariationalAutoencoder):
         dict_params = joblib.load(params_file)
         vae_model = TimeVAE(**dict_params)
         vae_model.load_state_dict(torch.load(os.path.join(model_dir, f"{cls.model_name}_weights.pth")))
-        vae_model.optimizer = optim.Adam(vae_model.parameters())
         return vae_model
 
 
@@ -253,7 +297,7 @@ if __name__ == "__main__":
     seq_len = 128
     feat_dim = 16
     latent_dim = 8
-    hidden_layer_sizes = [32, 64, 128]
+    hidden_layer_sizes = [50, 100, 200]
     trend_poly = 2
     custom_seas = [(4, 32), (6, 16)]
     use_residual_conn = True
@@ -284,14 +328,14 @@ if __name__ == "__main__":
     z_mean, z_log_var = vae_model.encoder(input_tensor)
 
     print("\nProcessed tensor (z_mean):")
-    print(z_mean)
+    print(z_mean.shape)
 
     print("\nProcessed tensor (z_log_var):")
-    print(z_log_var)
+    print(z_log_var.shape)
 
     # Test the decoder with a random latent tensor
     latent_tensor = torch.randn(batch_size, latent_dim)
     reconstructed_tensor = vae_model.decoder(latent_tensor)
 
     print("\nReconstructed tensor:")
-    print(reconstructed_tensor)
+    print(reconstructed_tensor.shape)
