@@ -22,13 +22,13 @@ class TrendLayer(nn.Module):
     def forward(self, z):
         trend_params = self.relu(self.trend_dense1(z))
         trend_params = self.trend_dense2(trend_params)
-        trend_params = trend_params.view(-1, self.feat_dim, self.trend_poly)  # shape: N x D x P
+        trend_params = trend_params.view(-1, self.feat_dim, self.trend_poly)
 
-        lin_space = torch.arange(0, float(self.seq_len), 1, device=z.device) / self.seq_len  # shape of lin_space: 1d tensor of length T
-        poly_space = torch.stack([lin_space ** float(p + 1) for p in range(self.trend_poly)], dim=0)  # shape: P x T
+        lin_space = torch.arange(0, float(self.seq_len), 1, device=z.device) / self.seq_len 
+        poly_space = torch.stack([lin_space ** float(p + 1) for p in range(self.trend_poly)], dim=0) 
 
-        trend_vals = torch.matmul(trend_params, poly_space)  # shape (N, D, T)
-        trend_vals = trend_vals.permute(0, 2, 1)  # shape: (N, T, D)
+        trend_vals = torch.matmul(trend_params, poly_space) 
+        trend_vals = trend_vals.permute(0, 2, 1) 
         trend_vals = trend_vals.float()
 
         return trend_vals
@@ -41,7 +41,6 @@ class SeasonalLayer(nn.Module):
         self.seq_len = seq_len
         self.custom_seas = custom_seas
 
-        # Create dense layers for each season
         self.dense_layers = nn.ModuleList([
             nn.Linear(latent_dim, feat_dim * num_seasons)
             for num_seasons, len_per_season in custom_seas
@@ -53,7 +52,6 @@ class SeasonalLayer(nn.Module):
             (num_seasons, len_per_season), dtype=torch.int32
         )
         season_indexes = season_indexes.view(-1)
-        # Ensure the length matches seq_len
         season_indexes = season_indexes.repeat(self.seq_len // len_per_season + 1)[: self.seq_len]
         return season_indexes
 
@@ -63,21 +61,21 @@ class SeasonalLayer(nn.Module):
 
         all_seas_vals = []
         for i, (num_seasons, len_per_season) in enumerate(self.custom_seas):
-            season_params = self.dense_layers[i](z)  # shape: (N, D * S)
-            season_params = season_params.view(-1, self.feat_dim, num_seasons)  # shape: (N, D, S)
+            season_params = self.dense_layers[i](z)
+            season_params = season_params.view(-1, self.feat_dim, num_seasons)
 
             season_indexes_over_time = self._get_season_indexes_over_seq(
                 num_seasons, len_per_season
-            ).to(z.device)  # shape: (T,)
+            ).to(z.device)
 
-            dim2_idxes = ones_tensor * season_indexes_over_time.view(1, 1, -1)  # shape: (N, D, T)
-            season_vals = torch.gather(season_params, 2, dim2_idxes)  # shape (N, D, T)
+            dim2_idxes = ones_tensor * season_indexes_over_time.view(1, 1, -1)
+            season_vals = torch.gather(season_params, 2, dim2_idxes)
 
             all_seas_vals.append(season_vals)
 
-        all_seas_vals = torch.stack(all_seas_vals, dim=-1)  # shape: (N, D, T, S)
-        all_seas_vals = torch.sum(all_seas_vals, dim=-1)  # shape (N, D, T)
-        all_seas_vals = all_seas_vals.permute(0, 2, 1)  # shape (N, T, D)
+        all_seas_vals = torch.stack(all_seas_vals, dim=-1) 
+        all_seas_vals = torch.sum(all_seas_vals, dim=-1)  
+        all_seas_vals = all_seas_vals.permute(0, 2, 1)  
 
         return all_seas_vals
 
@@ -114,11 +112,9 @@ class ResidualConnection(nn.Module):
         self.seq_len = seq_len
         self.encoder_last_dense_dim = encoder_last_dense_dim
         
-        # Define the linear layer to expand latent_dim to the encoder_last_dense_dim
         self.linear1 = nn.Linear(latent_dim, encoder_last_dense_dim)
         self.relu = nn.ReLU()
         
-        # Define the ConvTranspose1d layers
         self.deconv_layers = nn.ModuleList()
         in_channels = hidden_layer_sizes[-1]
         for num_filters in reversed(hidden_layer_sizes[:-1]):
@@ -127,7 +123,6 @@ class ResidualConnection(nn.Module):
             )
             in_channels = num_filters
 
-        # Final ConvTranspose1d layer to match feat_dim
         self.deconv_final = nn.ConvTranspose1d(hidden_layer_sizes[0], feat_dim, kernel_size=3, stride=2, padding=1, output_padding=1)
         self.flatten = nn.Flatten()
         self.linear2 = nn.Linear(seq_len * feat_dim, seq_len * feat_dim)
@@ -168,7 +163,6 @@ class TimeVAEEncoder(nn.Module):
 
         self.layers.append(nn.Flatten())
         
-        # Calculate the size after flattening
         self.encoder_last_dense_dim = self._get_last_dense_dim(seq_len, feat_dim, hidden_layer_sizes)
 
         self.encoder = nn.Sequential(*self.layers)
@@ -176,7 +170,7 @@ class TimeVAEEncoder(nn.Module):
         self.z_log_var = nn.Linear(self.encoder_last_dense_dim, latent_dim)
 
     def forward(self, x):
-        x = x.transpose(1, 2)  # (batch_size, feat_dim, seq_len)
+        x = x.transpose(1, 2)
         x = self.encoder(x)
         z_mean = self.z_mean(x)
         z_log_var = self.z_log_var(x)
@@ -266,7 +260,6 @@ class TimeVAE(BaseVariationalAutoencoder):
         os.makedirs(model_dir, exist_ok=True)
         torch.save(self.state_dict(), os.path.join(model_dir, f"{self.model_name}_weights.pth"))
 
-        # Convert custom_seas back to list of tuples so it is serializable
         if self.custom_seas is not None:
             self.custom_seas = [(int(num_seasons), int(len_per_season)) for num_seasons, len_per_season in self.custom_seas]
 

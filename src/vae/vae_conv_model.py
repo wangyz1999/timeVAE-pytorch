@@ -30,7 +30,7 @@ class Encoder(nn.Module):
             return x.numel()
 
     def forward(self, x):
-        x = x.transpose(1, 2)  # (batch_size, feat_dim, seq_len)
+        x = x.transpose(1, 2) 
         for conv in self.conv_layers:
             x = torch.relu(conv(x))
         x = self.flatten(x)
@@ -58,9 +58,9 @@ class Decoder(nn.Module):
             nn.ConvTranspose1d(in_channels, feat_dim, kernel_size=3, stride=2, padding=1, output_padding=1)
         )
 
-        L_in = encoder_last_dense_dim // hidden_layer_sizes[-1]  # initial sequence length after reshaping
+        L_in = encoder_last_dense_dim // hidden_layer_sizes[-1] 
         for i in range(len(hidden_layer_sizes)):
-            L_in = (L_in - 1) * 2 - 2 * 1 + 3 + 1  # Adjust this formula based on your ConvTranspose1d params
+            L_in = (L_in - 1) * 2 - 2 * 1 + 3 + 1 
         L_final = L_in 
 
         self.final_dense = nn.Linear(feat_dim * L_final, seq_len * feat_dim)

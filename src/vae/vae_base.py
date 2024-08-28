@@ -122,7 +122,6 @@ class BaseVariationalAutoencoder(nn.Module, ABC):
         reconst_loss = torch.sum(err)
         
         reconst_loss += get_reconst_loss_by_axis(X, X_recons, dim=2)  # by time axis
-        
         # reconst_loss += get_reconst_loss_by_axis(X, X_recons, dim=1)  # by feature axis 
 
         return reconst_loss
