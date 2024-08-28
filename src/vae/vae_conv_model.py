@@ -17,12 +17,12 @@ class Encoder(nn.Module):
             in_channels = num_filters
 
         self.flatten = nn.Flatten()
-        self.encoder_last_dense_dim = self._get_flattened_size(seq_len, feat_dim, hidden_layer_sizes)
+        self.encoder_last_dense_dim = self._get_last_dense_dim(seq_len, feat_dim, hidden_layer_sizes)
         self.z_mean = nn.Linear(self.encoder_last_dense_dim, latent_dim)
         self.z_log_var = nn.Linear(self.encoder_last_dense_dim, latent_dim)
         self.sampling = Sampling()
 
-    def _get_flattened_size(self, seq_len, feat_dim, hidden_layer_sizes):
+    def _get_last_dense_dim(self, seq_len, feat_dim, hidden_layer_sizes):
         with torch.no_grad():
             x = torch.randn(1, feat_dim, seq_len)
             for conv in self.conv_layers:
