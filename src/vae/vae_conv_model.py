@@ -109,29 +109,3 @@ class VariationalAutoencoderConv(BaseVariationalAutoencoder):
         vae_model = VariationalAutoencoderConv(**dict_params)
         vae_model.load_weights(model_dir)
         return vae_model
-
-if __name__ == "__main__":
-    # Example usage
-    vae = VariationalAutoencoderConv(seq_len=155, feat_dim=14, latent_dim=99)
-    print("PyTorch VAE Architecture:")
-    print(vae)
-
-    # Print encoder architecture
-    print("\nEncoder Architecture:")
-    print(vae.encoder)
-
-    # Print decoder architecture
-    print("\nDecoder Architecture:")
-    print(vae.decoder)
-
-    # Example input
-    x = torch.randn(1, 155, 14)
-    z_mean, z_log_var, z = vae.encoder(x)
-    print(f"\nEncoder output shapes:")
-    print(f"z_mean: {z_mean.shape}")
-    print(f"z_log_var: {z_log_var.shape}")
-    print(f"z: {z.shape}")
-
-    # Reconstruct
-    x_reconstructed = vae.decoder(z)
-    print(f"\nDecoder output shape: {x_reconstructed.shape}")
