@@ -10,7 +10,9 @@ For a detailed explanation of the methodology, please refer to the original pape
 
 ## Comparison 
 
-TODO
+![6df09115-47d3-4a3d-bdcf-ea97c2751db0](https://github.com/user-attachments/assets/46df53e5-a440-48db-8174-4d6cb098f0f7)
+
+![Screenshot 2024-08-28 201110](https://github.com/user-attachments/assets/3f029d36-0d9c-4b27-bca0-c5cec8694836)
 
 
 ## Installation
