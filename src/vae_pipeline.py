@@ -3,8 +3,6 @@ import numpy as np
 import time
 import torch
 
-torch.set_printoptions(precision=10)
-
 from data_utils import (
     load_yaml_file,
     load_data,
