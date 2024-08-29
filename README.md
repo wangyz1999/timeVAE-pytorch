@@ -10,9 +10,9 @@ For a detailed explanation of the methodology, please refer to the original pape
 
 ## Comparison 
 
-![6df09115-47d3-4a3d-bdcf-ea97c2751db0](https://github.com/user-attachments/assets/46df53e5-a440-48db-8174-4d6cb098f0f7)
+The PyTorch model was trained and evaluated using the provided dataset and the default parameters as in the TensorFlow implementation, achieving similar convergence (see Figure 4 from the original paper). The plotting script can be found in [src/compare_plot.ipynb](https://github.com/wangyz1999/timeVAE-pytorch/blob/main/README.md).
 
-![Screenshot 2024-08-28 201110](https://github.com/user-attachments/assets/3f029d36-0d9c-4b27-bca0-c5cec8694836)
+![TSNE TIMEVAE](https://github.com/user-attachments/assets/46df53e5-a440-48db-8174-4d6cb098f0f7)
 
 
 ## Installation
