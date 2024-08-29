@@ -1,6 +1,6 @@
-# (Unofficial) PyTorch Implementation of TimeVAE
+# PyTorch Implementation of TimeVAE
 
-This repository provides a PyTorch implementation of the TimeVAE model for generating synthetic time-series data, along with two baseline models: a dense VAE and a convolutional VAE. The file structures and usage closely follow the original TensorFlow implementation to ensure consistency and ease of use.
+This repository provides an unofficial PyTorch implementation of the TimeVAE model for generating synthetic time-series data, along with two baseline models: a dense VAE and a convolutional VAE. The file structures and usage closely follow the original TensorFlow implementation to ensure consistency and ease of use.
 
 Original Tensorflow Repo: [TimeVAE for Synthetic Timeseries Data Generation](https://github.com/abudesai/timeVAE)
 
