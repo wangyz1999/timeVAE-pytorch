@@ -1,12 +1,8 @@
-from typing import Union, List, Optional
-import numpy as np
 import random
-import os
-import warnings
-
-warnings.filterwarnings("ignore")
+from typing import Union, List, Optional
 
 import torch
+import numpy as np
 
 from vae.vae_dense_model import VariationalAutoencoderDense as VAE_Dense
 from vae.vae_conv_model import VariationalAutoencoderConv as VAE_Conv

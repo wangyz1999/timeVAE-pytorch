@@ -1,8 +1,9 @@
-import matplotlib.pyplot as plt
 import os
+from typing import Optional
+
+import matplotlib.pyplot as plt
 import pandas as pd, numpy as np
 from sklearn.manifold import TSNE
-from typing import Optional
 
 TITLE_FONT_SIZE = 16
 

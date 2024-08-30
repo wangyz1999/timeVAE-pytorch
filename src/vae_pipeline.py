@@ -1,8 +1,8 @@
-import os, warnings
-import numpy as np
-import time
-import torch
+import os
 
+import numpy as np
+
+import paths
 from data_utils import (
     load_yaml_file,
     load_data,
@@ -12,7 +12,6 @@ from data_utils import (
     save_scaler,
     save_data,
 )
-import paths
 from vae.vae_utils import (
     instantiate_vae_model,
     train_vae,
