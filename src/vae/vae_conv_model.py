@@ -2,14 +2,15 @@ import os
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import joblib
 
 from vae.vae_base import BaseVariationalAutoencoder, Sampling
 
 
-class Encoder(nn.Module):
+class ConvEncoder(nn.Module):
     def __init__(self, seq_len, feat_dim, hidden_layer_sizes, latent_dim):
-        super(Encoder, self).__init__()
+        super(ConvEncoder, self).__init__()
         self.conv_layers = nn.ModuleList()
         in_channels = feat_dim
         for i, num_filters in enumerate(hidden_layer_sizes):
@@ -18,7 +19,6 @@ class Encoder(nn.Module):
             )
             in_channels = num_filters
 
-        self.flatten = nn.Flatten()
         self.encoder_last_dense_dim = self._get_last_dense_dim(seq_len, feat_dim, hidden_layer_sizes)
         self.z_mean = nn.Linear(self.encoder_last_dense_dim, latent_dim)
         self.z_log_var = nn.Linear(self.encoder_last_dense_dim, latent_dim)
@@ -34,28 +34,32 @@ class Encoder(nn.Module):
     def forward(self, x):
         x = x.transpose(1, 2) 
         for conv in self.conv_layers:
-            x = torch.relu(conv(x))
-        x = self.flatten(x)
+            x = F.relu(conv(x))
+        x = x.flatten(1)
         z_mean = self.z_mean(x)
         z_log_var = self.z_log_var(x)
         z = self.sampling((z_mean, z_log_var))
         return z_mean, z_log_var, z
     
 
-class Decoder(nn.Module):
+class ConvDecoder(nn.Module):
     def __init__(self, seq_len, feat_dim, hidden_layer_sizes, latent_dim, encoder_last_dense_dim):
-        super(Decoder, self).__init__()
+        super(ConvDecoder, self).__init__()
+        
         self.seq_len = seq_len
         self.feat_dim = feat_dim
         self.hidden_layer_sizes = hidden_layer_sizes
+        
         self.dense = nn.Linear(latent_dim, encoder_last_dense_dim)
         self.deconv_layers = nn.ModuleList()
         in_channels = hidden_layer_sizes[-1]
+        
         for i, num_filters in enumerate(reversed(hidden_layer_sizes[:-1])):
             self.deconv_layers.append(
                 nn.ConvTranspose1d(in_channels, num_filters, kernel_size=3, stride=2, padding=1, output_padding=1)
             )
             in_channels = num_filters
+            
         self.deconv_layers.append(
             nn.ConvTranspose1d(in_channels, feat_dim, kernel_size=3, stride=2, padding=1, output_padding=1)
         )
@@ -69,12 +73,14 @@ class Decoder(nn.Module):
 
     def forward(self, z):
         batch_size = z.size(0)
-        x = torch.relu(self.dense(z))
+        x = F.relu(self.dense(z))
         x = x.view(batch_size, -1, self.hidden_layer_sizes[-1])
         x = x.transpose(1, 2)
+        
         for deconv in self.deconv_layers[:-1]:
-            x = torch.relu(deconv(x))
-        x = torch.relu(self.deconv_layers[-1](x))
+            x = F.relu(deconv(x))
+        x = F.relu(self.deconv_layers[-1](x))
+        
         x = x.flatten(1)
         x = self.final_dense(x)
         x = x.view(-1, self.seq_len, self.feat_dim)
@@ -99,10 +105,10 @@ class VariationalAutoencoderConv(BaseVariationalAutoencoder):
                     nn.init.zeros_(layer.bias)
 
     def _get_encoder(self):
-        return Encoder(self.seq_len, self.feat_dim, self.hidden_layer_sizes, self.latent_dim)
+        return ConvEncoder(self.seq_len, self.feat_dim, self.hidden_layer_sizes, self.latent_dim)
 
     def _get_decoder(self):
-        return Decoder(self.seq_len, self.feat_dim, self.hidden_layer_sizes, self.latent_dim, self.encoder.encoder_last_dense_dim)
+        return ConvDecoder(self.seq_len, self.feat_dim, self.hidden_layer_sizes, self.latent_dim, self.encoder.encoder_last_dense_dim)
 
     @classmethod
     def load(cls, model_dir):

@@ -63,6 +63,11 @@ class BaseVariationalAutoencoder(nn.Module, ABC):
                 
                 loss, recon_loss, kl = self.loss_function(X, reconstruction, z_mean, z_log_var)
                 
+                # Normalize the loss by the batch size
+                loss = loss / X.size(0)
+                recon_loss = recon_loss / X.size(0)
+                kl = kl / X.size(0)
+                
                 loss.backward()
                 optimizer.step()
                 
@@ -74,7 +79,6 @@ class BaseVariationalAutoencoder(nn.Module, ABC):
                 print(f"Epoch {epoch + 1}/{max_epochs} | Total loss: {total_loss / len(train_loader):.4f} | "
                     f"Recon loss: {reconstruction_loss / len(train_loader):.4f} | "
                     f"KL loss: {kl_loss / len(train_loader):.4f}")
-
 
     def forward(self, X):
         z_mean, z_log_var, z = self.encoder(X)

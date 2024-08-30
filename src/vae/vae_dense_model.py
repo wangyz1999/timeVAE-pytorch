@@ -2,7 +2,6 @@ import os
 
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import joblib
 
 from vae.vae_base import BaseVariationalAutoencoder, Sampling
@@ -13,7 +12,6 @@ class DenseEncoder(nn.Module):
         input_size = seq_len * feat_dim
 
         encoder_layers = []
-        
         encoder_layers.append(nn.Flatten())
         
         for M_out in hidden_layer_sizes:

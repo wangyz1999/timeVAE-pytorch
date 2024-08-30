@@ -2,25 +2,24 @@ import os
 
 import torch
 import torch.nn as nn
-import torch.optim as optim
+import torch.nn.functional as F
 import joblib
 
 from vae.vae_base import BaseVariationalAutoencoder, Sampling
 
 
 class TrendLayer(nn.Module):
-    def __init__(self, latent_dim, feat_dim, trend_poly, seq_len):
+    def __init__(self, seq_len, feat_dim, latent_dim, trend_poly):
         super(TrendLayer, self).__init__()
-        self.latent_dim = latent_dim
-        self.feat_dim = feat_dim
-        self.trend_poly = trend_poly
         self.seq_len = seq_len
+        self.feat_dim = feat_dim
+        self.latent_dim = latent_dim
+        self.trend_poly = trend_poly
         self.trend_dense1 = nn.Linear(self.latent_dim, self.feat_dim * self.trend_poly)
         self.trend_dense2 = nn.Linear(self.feat_dim * self.trend_poly, self.feat_dim * self.trend_poly)
-        self.relu = nn.ReLU()
 
     def forward(self, z):
-        trend_params = self.relu(self.trend_dense1(z))
+        trend_params = F.relu(self.trend_dense1(z))
         trend_params = self.trend_dense2(trend_params)
         trend_params = trend_params.view(-1, self.feat_dim, self.trend_poly)
 
@@ -29,16 +28,14 @@ class TrendLayer(nn.Module):
 
         trend_vals = torch.matmul(trend_params, poly_space) 
         trend_vals = trend_vals.permute(0, 2, 1) 
-        trend_vals = trend_vals.float()
-
         return trend_vals
 
 
 class SeasonalLayer(nn.Module):
-    def __init__(self, latent_dim, feat_dim, seq_len, custom_seas):
+    def __init__(self, seq_len, feat_dim, latent_dim, custom_seas):
         super(SeasonalLayer, self).__init__()
-        self.feat_dim = feat_dim
         self.seq_len = seq_len
+        self.feat_dim = feat_dim
         self.custom_seas = custom_seas
 
         self.dense_layers = nn.ModuleList([
@@ -104,55 +101,56 @@ class LevelModel(nn.Module):
 
 
 class ResidualConnection(nn.Module):
-    def __init__(self, latent_dim, hidden_layer_sizes, feat_dim, seq_len, encoder_last_dense_dim):
+    def __init__(self, seq_len, feat_dim, hidden_layer_sizes, latent_dim, encoder_last_dense_dim):
         super(ResidualConnection, self).__init__()
-        self.latent_dim = latent_dim
-        self.hidden_layer_sizes = hidden_layer_sizes
-        self.feat_dim = feat_dim
         self.seq_len = seq_len
-        self.encoder_last_dense_dim = encoder_last_dense_dim
+        self.feat_dim = feat_dim
+        self.hidden_layer_sizes = hidden_layer_sizes
         
-        self.linear1 = nn.Linear(latent_dim, encoder_last_dense_dim)
-        self.relu = nn.ReLU()
-        
+        self.dense = nn.Linear(latent_dim, encoder_last_dense_dim)
         self.deconv_layers = nn.ModuleList()
         in_channels = hidden_layer_sizes[-1]
-        for num_filters in reversed(hidden_layer_sizes[:-1]):
+        
+        for i, num_filters in enumerate(reversed(hidden_layer_sizes[:-1])):
             self.deconv_layers.append(
                 nn.ConvTranspose1d(in_channels, num_filters, kernel_size=3, stride=2, padding=1, output_padding=1)
             )
             in_channels = num_filters
+            
+        self.deconv_layers.append(
+            nn.ConvTranspose1d(in_channels, feat_dim, kernel_size=3, stride=2, padding=1, output_padding=1)
+        )
 
-        self.deconv_final = nn.ConvTranspose1d(hidden_layer_sizes[0], feat_dim, kernel_size=3, stride=2, padding=1, output_padding=1)
-        self.flatten = nn.Flatten()
-        self.linear2 = nn.Linear(seq_len * feat_dim, seq_len * feat_dim)
+        L_in = encoder_last_dense_dim // hidden_layer_sizes[-1] 
+        for i in range(len(hidden_layer_sizes)):
+            L_in = (L_in - 1) * 2 - 2 * 1 + 3 + 1 
+        L_final = L_in 
+
+        self.final_dense = nn.Linear(feat_dim * L_final, seq_len * feat_dim)
 
     def forward(self, z):
-        batch_size = z.shape[0]
-        x = self.linear1(z)
-        x = self.relu(x)
-        x = x.view(batch_size, self.hidden_layer_sizes[-1], -1)
+        batch_size = z.size(0)
+        x = F.relu(self.dense(z))
+        x = x.view(batch_size, -1, self.hidden_layer_sizes[-1])
+        x = x.transpose(1, 2)
         
-        for deconv in self.deconv_layers:
-            x = deconv(x)
-            x = self.relu(x)
-
-        x = self.deconv_final(x)
-        x = self.relu(x)
+        for deconv in self.deconv_layers[:-1]:
+            x = F.relu(deconv(x))
+        x = F.relu(self.deconv_layers[-1](x))
         
-        x = self.flatten(x)
-        x = self.linear2(x)
-        residuals = x.view(batch_size, self.seq_len, self.feat_dim)
+        x = x.flatten(1)
+        x = self.final_dense(x)
+        residuals = x.view(-1, self.seq_len, self.feat_dim)
         return residuals
     
 
 class TimeVAEEncoder(nn.Module):
-    def __init__(self, feat_dim, hidden_layer_sizes, latent_dim, seq_len):
+    def __init__(self, seq_len, feat_dim, hidden_layer_sizes, latent_dim):
         super(TimeVAEEncoder, self).__init__()
-        self.hidden_layer_sizes = hidden_layer_sizes
+        self.seq_len = seq_len
         self.feat_dim = feat_dim
         self.latent_dim = latent_dim
-        self.seq_len = seq_len
+        self.hidden_layer_sizes = hidden_layer_sizes
         self.layers = []
         self.layers.append(nn.Conv1d(feat_dim, hidden_layer_sizes[0], kernel_size=3, stride=2, padding=1))
         self.layers.append(nn.ReLU())
@@ -185,32 +183,30 @@ class TimeVAEEncoder(nn.Module):
             return x.numel()
 
 class TimeVAEDecoder(nn.Module):
-    def __init__(self, feat_dim, hidden_layer_sizes, latent_dim, seq_len, trend_poly=0, custom_seas=None, use_residual_conn=True, encoder_last_dense_dim=None):
+    def __init__(self, seq_len, feat_dim, hidden_layer_sizes, latent_dim, trend_poly=0, custom_seas=None, use_residual_conn=True, encoder_last_dense_dim=None):
         super(TimeVAEDecoder, self).__init__()
-        self.hidden_layer_sizes = hidden_layer_sizes
-        self.feat_dim = feat_dim
-        self.latent_dim = latent_dim
         self.seq_len = seq_len
+        self.feat_dim = feat_dim
+        self.hidden_layer_sizes = hidden_layer_sizes
+        self.latent_dim = latent_dim
         self.trend_poly = trend_poly
         self.custom_seas = custom_seas
         self.use_residual_conn = use_residual_conn
         self.encoder_last_dense_dim = encoder_last_dense_dim
-        self.relu = nn.ReLU()
         self.level_model = LevelModel(self.latent_dim, self.feat_dim, self.seq_len)
 
         if use_residual_conn:
-            self.residual_conn = ResidualConnection(latent_dim, hidden_layer_sizes, feat_dim, seq_len, encoder_last_dense_dim)
-
+            self.residual_conn = ResidualConnection(seq_len, feat_dim, hidden_layer_sizes, latent_dim, encoder_last_dense_dim)
 
     def forward(self, z):
         outputs = self.level_model(z)
         if self.trend_poly is not None and self.trend_poly > 0:
-            trend_vals = TrendLayer(self.latent_dim, self.feat_dim, self.trend_poly, self.seq_len)(z)
+            trend_vals = TrendLayer(self.seq_len, self.feat_dim, self.latent_dim, self.trend_poly)(z)
             outputs += trend_vals
 
         # custom seasons
         if self.custom_seas is not None and len(self.custom_seas) > 0:
-            cust_seas_vals = SeasonalLayer(self.latent_dim, self.feat_dim, self.seq_len, self.custom_seas)(z)
+            cust_seas_vals = SeasonalLayer(self.seq_len, self.feat_dim, self.latent_dim, self.custom_seas)(z)
             outputs += cust_seas_vals
 
         if self.use_residual_conn:
@@ -251,10 +247,10 @@ class TimeVAE(BaseVariationalAutoencoder):
                     nn.init.zeros_(layer.bias)
 
     def _get_encoder(self):
-        return TimeVAEEncoder(self.feat_dim, self.hidden_layer_sizes, self.latent_dim, self.seq_len)
+        return TimeVAEEncoder(self.seq_len, self.feat_dim, self.hidden_layer_sizes, self.latent_dim)
 
     def _get_decoder(self):
-        return TimeVAEDecoder(self.feat_dim, self.hidden_layer_sizes, self.latent_dim, self.seq_len, self.trend_poly, self.custom_seas, self.use_residual_conn, self.encoder.encoder_last_dense_dim)
+        return TimeVAEDecoder(self.seq_len, self.feat_dim, self.hidden_layer_sizes, self.latent_dim, self.trend_poly, self.custom_seas, self.use_residual_conn, self.encoder.encoder_last_dense_dim)
 
     def save(self, model_dir: str):
         os.makedirs(model_dir, exist_ok=True)

@@ -134,6 +134,6 @@ if __name__ == "__main__":
     dataset = "sine_subsampled_train_perc_20"
 
     # models: vae_dense, vae_conv, timeVAE
-    model_name = "timeVAE"
+    model_name = "vae_conv"
 
     run_vae_pipeline(dataset, model_name)
