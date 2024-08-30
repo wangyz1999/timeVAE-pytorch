@@ -12,7 +12,8 @@ For a detailed explanation of the methodology, please refer to the original pape
 
 The PyTorch model was trained and evaluated using the provided dataset and the default hyperparameters as in the TensorFlow implementation, each for 1000 epochs, achieving similar convergence (see Figure 4 from the original paper). The plotting script can be found in [src/compare_plot.ipynb](https://github.com/wangyz1999/timeVAE-pytorch/blob/main/src/compare_plot.ipynb).
 
-![TSNE TIMEVAE](https://github.com/user-attachments/assets/46df53e5-a440-48db-8174-4d6cb098f0f7)
+![TSNE TIMEVAE](https://github.com/user-attachments/assets/887a776c-7df6-46f4-9a16-301eb6021967)
+
 
 ## Installation
 
